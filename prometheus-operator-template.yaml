@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: prometheus-operator-template
+  annotations:
+    description: "Deploy a customized prometheus-operator to work alongside the cluster-monitorin-operator. It enables you to use operated prometheus instances and servicemonitors."
+    tags: "monitoring"
+objects:
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRoleBinding
+  metadata:
+    name: ${ROLE_NAME}
+  roleRef:
+   apiGroup: rbac.authorization.k8s.io
+   kind: ClusterRole
+   name: ${ROLE_NAME}
+  subjects:
+  - kind: ServiceAccount
+    name: ${ROLE_NAME}
+    namespace: custom-prometheus-operator
+- apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: ${ROLE_NAME}
+  rules:
+  - apiGroups:
+    - apiextensions.k8s.io
+    resources:
+    - customresourcedefinitions
+    verbs:
+    - '*'
+  - apiGroups:
+    - ${API_GROUP}
+    resources:
+    - alertmanagers
+    - prometheuses
+    - prometheuses/finalizers
+    - alertmanagers/finalizers
+    - servicemonitors
+    - prometheusrules
+    verbs:
+    - '*'
+  - apiGroups:
+    - apps
+    resources:
+    - statefulsets
+    verbs:
+    - '*'
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    - secrets
+    verbs:
+    - '*'
+  - apiGroups:
+    - ""
+    resources:
+    - pods
+    verbs:
+    - list
+    - delete
+  - apiGroups:
+    - ""
+    resources:
+    - services
+    - endpoints
+    verbs:
+    - get
+    - create
+    - update
+  - apiGroups:
+    - ""
+    resources:
+    - nodes
+    verbs:
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - namespaces
+    verbs:
+    - get
+    - list
+    - watch
+- apiVersion: apps/v1beta2
+  kind: Deployment
+  metadata:
+    labels:
+      k8s-app: ${ROLE_NAME}
+    name: ${ROLE_NAME}
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        k8s-app: ${ROLE_NAME}
+    template:
+      metadata:
+        labels:
+          k8s-app: ${ROLE_NAME}
+      spec:
+        containers:
+        - args:
+          - --kubelet-service=kube-system/kubelet
+          - --logtostderr=true
+          - --config-reloader-image=quay.io/coreos/configmap-reload:v0.0.1
+          - --prometheus-config-reloader=quay.io/coreos/prometheus-config-reloader:${OPERATOR_VERSION}
+          - --crd-apigroup=${API_GROUP}
+          image: quay.io/coreos/prometheus-operator:${OPERATOR_VERSION}
+          name: ${ROLE_NAME}
+          ports:
+          - containerPort: 8080
+            name: http
+          resources:
+            limits:
+              cpu: 200m
+              memory: 200Mi
+            requests:
+              cpu: 100m
+              memory: 100Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+        nodeSelector:
+          beta.kubernetes.io/os: linux
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+        serviceAccountName: ${ROLE_NAME}
+- apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: ${ROLE_NAME}
+parameters:
+- name: API_GROUP
+  description: This defines the apiGroup of the custom prometheus-operator. 
+  value: monitoring.example.com
+  required: true
+- name: OPERATOR_VERSION
+  description: Sets the prometheus-operator version to use. Defaults to v0.25.0
+  value: v0.25.0
+  required: true
+- name: ROLE_NAME
+  description: Which clusterRole and serviceAccount name to use.
+  value: custom-prometheus-operator
+  required: true
